@@ -13,6 +13,7 @@
 //#include <mach/task_special_ports.h>
 
 #define PORT_COUNT 67 // 67 was enough to trigger -> hack different server won't like this xd
+/// set this to 478 if default didn't work
 
 typedef struct {
     mach_msg_header_t header;
