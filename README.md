@@ -1,41 +1,16 @@
 # Mach Port Flooder
 
-- totally not useful for jailbreak
+DoS-only PoC that inflates launchd’s footprint with OOL port arrays to force an `initproc exited` panic. Not a jailbreak primitive.
 
-- just for those who wanted to see how the panic work
+## Tested
+- iPhone 15 Plus – iOS 26.2 (23C55) ✅
+- iPad – iPadOS 18.0 ✅
 
+## Status
+- Works: ✅ (2025-12-14)
+- Unpatched on iOS 26.2 (23C55)
 
-
-
-## Update on spray
-
-
-Set PORT_COUNT to 478 or 956 if default count failed to panic
-
-on iPhone 12 & iPhone 15, default port counts works
-
-on iPhone 16+, set to 478 or around
-
-
-
-
-
-# Status
-
-- Works? ✅ // 2025/12/14
-- Unpatched? ✅ // iOS 26.2 (23C55)
-
-
-
-
-
-# Disclaimer
-
-don't blame on my code i can't make it better (major skill issues 🥹)
-
-
-this poc will trigger initproc exit kernel panic
-
-
-don't test this on main device
-
+## Notes
+- Expected panic string: `initproc exited -- exit reason namespace 1 subcode 0x7`.
+- This will force a full device panic/reboot; use entirely at your own risk and never on a primary device.
+- Credits: Original by Jian Lee (@speedyfriend433); stability tweaks by yousef (yousef_dev921).
